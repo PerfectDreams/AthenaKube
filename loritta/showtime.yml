@@ -1,0 +1,71 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: showtime-backend
+spec:
+  type: LoadBalancer
+  selector:
+    app: showtime-backend
+  ports:
+    - protocol: TCP
+      # Port bound in the node VM itself, you can access it externally
+      port: 10001
+      # Port within the container
+      targetPort: 8080
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: showtime-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: showtime-backend
+  template:
+    metadata:
+      labels:
+        app: showtime-backend
+        project: loritta
+    spec:
+      topologySpreadConstraints: # Avoid hosting the service in the same node
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: showtime-backend
+      containers:
+        - name: showtime-backend
+          image: ghcr.io/lorittabot/showtime-backend:latest # Will always pull the latest version
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              memory: 512Mi # Max 512Mi per container
+            requests:
+              memory: 512Mi # But we also need at least 512Mi to run
+              cpu: "0.5" # We need at least half core free
+          livenessProbe: # Liveness check, allows the service to automatically restart if it is offline
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10 # Avoids checking for liveness when the webserver is still starting
+            periodSeconds: 3 # Check every 3 seconds
+          readinessProbe: # Readniess check, the service will only be used for load balancing if the readniess check works
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 5 # Check every 5 seconds
+      tolerations: # Move pod if node is 15 seconds unreachable/not ready
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 15
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 15               

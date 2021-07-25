@@ -1,0 +1,71 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: gabriela-image-server
+spec:
+  type: LoadBalancer
+  selector:
+    app: gabriela-image-server
+  ports:
+    - protocol: TCP
+      # Port bound in the node VM itself, you can access it externally
+      port: 10000
+      # Port within the container
+      targetPort: 8001
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: gabriela-image-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gabriela-image-server
+  template:
+    metadata:
+      labels:
+        app: gabriela-image-server
+        project: loritta
+    spec:
+      topologySpreadConstraints: # Avoid hosting the service in the same node
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway # DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: gabriela-image-server
+      containers:
+        - name: gabriela-image-server
+          image: ghcr.io/lorittabot/gabriela-image-server:latest # Will always pull the latest version
+          ports:
+            - containerPort: 8001
+              protocol: TCP
+          resources:
+            limits:
+              memory: 2Gi # Max 2GB per container
+            requests:
+              memory: 2Gi # But we also need at least 2GB to run
+              cpu: "2" # We need at least two cores free
+          livenessProbe: # Liveness check, allows the service to automatically restart if it is offline
+            httpGet:
+              path: /
+              port: 8001
+            initialDelaySeconds: 10 # Avoids checking for liveness when the webserver is still starting
+            periodSeconds: 3 # Check every 3 seconds
+          readinessProbe: # Readniess check, the service will only be used for load balancing if the readniess check works
+            httpGet:
+              path: /
+              port: 8001
+            periodSeconds: 5 # Check every 5 seconds
+      tolerations: # Move pod if node is 15 seconds unreachable/not ready
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 15
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 15               
