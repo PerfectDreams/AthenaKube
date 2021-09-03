@@ -1,0 +1,96 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: perfectpayments-sandbox-backend
+spec:
+  type: LoadBalancer
+  selector:
+    app: perfectpayments-sandbox-backend
+  ports:
+    - protocol: TCP
+      # Port bound in the node VM itself, you can access it externally
+      port: 10002
+      # Port within the container
+      targetPort: 8080
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: perfectpayments-sandbox-backend
+spec:
+  replicas: 1 # only one because PerfectPayments has a payment cache that can't change between instances
+  selector:
+    matchLabels:
+      app: perfectpayments-sandbox-backend
+
+  template:
+    metadata:
+      labels:
+        app: perfectpayments-sandbox-backend
+        project: perfectdreams
+    spec:
+      topologySpreadConstraints: # Avoid hosting the service in the same node
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: perfectpayments-sandbox-backend
+
+      # Add the ConfigMap as a volume to the Pod
+      volumes:
+        # `name` here must match the name
+        # specified in the volume mount
+        - name: config-volume
+          # Populate the volume with config map data
+          configMap:
+            # `name` here must match the name
+            # specified in the ConfigMap's YAML
+            name: perfectpayments-sandbox-config
+
+      containers:
+        - name: perfectpayments-sandbox-backend
+          image: ghcr.io/perfectdreams/perfectpayments-backend:latest # Will always pull the latest version
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+
+          volumeMounts:
+            # `name` here must match the name
+            # from the volumes section of this pod
+            - name: config-volume
+              mountPath: /app.conf
+              subPath: app.conf
+
+            - name: config-volume
+              mountPath: /focusnfe.conf
+              subPath: focusnfe.conf
+
+          resources:
+            limits:
+              memory: 512Mi # Max 512Mi per container
+            requests:
+              memory: 512Mi # But we also need at least 512Mi to run
+              cpu: "0.5" # We need at least half core free
+          livenessProbe: # Liveness check, allows the service to automatically restart if it is offline
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10 # Avoids checking for liveness when the webserver is still starting
+            periodSeconds: 3 # Check every 3 seconds
+          readinessProbe: # Readniess check, the service will only be used for load balancing if the readniess check works
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 5 # Check every 5 seconds
+      tolerations: # Move pod if node is 15 seconds unreachable/not ready
+        - key: "node.kubernetes.io/unreachable"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 15
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
+          tolerationSeconds: 15
