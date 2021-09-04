@@ -64,3 +64,11 @@ k3s-worker1   Ready    <none>                 6h8m    v1.21.3+k3s1
 k3s-athena1   Ready    control-plane,master   6h38m   v1.21.3+k3s1
 k3s-athena2   Ready    control-plane,master   6h35m   v1.21.3+k3s1
 ```
+
+### Debian nft/iptables issues
+
+Debian has an issue with their iptables version that causes k3s to insert a lot of duplicate iptables rules, slowing down your nodes.
+
+To fix this, run `apt remove iptables nftables -y` and reboot the nodes! This will cause k3s to use their own iptables binary, which doesn't has this issue.
+
+More information: https://github.com/k3s-io/k3s/issues/3117
